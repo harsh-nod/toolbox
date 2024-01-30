@@ -54,17 +54,30 @@ def execute_command(command, output_file=''):
         process.wait()
     return out, err
 
+def get_transposed_shape(args):
+    if args.transpose_v is None:
+        return args.shape
+    split_values = args.shape.split('x')
+    split_values[2], split_values[1] = split_values[1], split_values[2]
+    return 'x'.join(split_values)
+
 def create_mlir(args):
     ir = ""
+    value_shape = get_transposed_shape(args)
+    if args.transpose_v is None:
+        transpose_v = 'false'
+    else:
+        transpose_v = 'true'
+
     if args.inline:
         ir += f"func.func @{Hyperparameters.FUNC_NAME}() -> tensor<{args.shape}> {{\n"
         ir += f"%query = util.unfoldable_constant dense<1.0> : tensor<{args.shape}>\n"
         ir += f"%key = util.unfoldable_constant dense<2.0> : tensor<{args.shape}>\n"
-        ir += f"%value = util.unfoldable_constant dense<0.5> : tensor<{args.shape}>\n"
+        ir += f"%value = util.unfoldable_constant dense<0.5> : tensor<{value_shape}>\n"
     else:
-        ir += f"func.func @{Hyperparameters.FUNC_NAME}(%query: tensor<{args.shape}>, %key: tensor<{args.shape}>, %value: tensor<{args.shape}>) -> tensor<{args.shape}> {{\n"
+        ir += f"func.func @{Hyperparameters.FUNC_NAME}(%query: tensor<{args.shape}>, %key: tensor<{args.shape}>, %value: tensor<{value_shape}>) -> tensor<{args.shape}> {{\n"
     ir += f"  %0 = tensor.empty() : tensor<{args.shape}>\n"
-    ir += f"  %1 = iree_linalg_ext.attention ins(%query, %key, %value : tensor<{args.shape}>, tensor<{args.shape}>, tensor<{args.shape}>) outs(%0 : tensor<{args.shape}>) -> tensor<{args.shape}>\n"
+    ir += f"  %1 = iree_linalg_ext.attention {{transpose_v = {transpose_v}}} ins(%query, %key, %value : tensor<{args.shape}>, tensor<{args.shape}>, tensor<{value_shape}>) outs(%0 : tensor<{args.shape}>) -> tensor<{args.shape}>\n"
     ir += f"  return %1 : tensor<{args.shape}>\n"
     ir += "}\n"
     filename = "attention_" + args.shape + ".mlir"
@@ -136,6 +149,8 @@ def compute_reference_inputs_and_outputs(args):
         np.save(f, q.detach().cpu().numpy())
     with open(f'key_{shape}.npy', 'wb') as f:
         np.save(f, k.detach().cpu().numpy())
+    if args.transpose_v:
+        v = torch.permute(v, (0, 2, 1))
     with open(f'value_{shape}.npy', 'wb') as f:
         np.save(f, v.detach().cpu().numpy())
     with open(f'output_{shape}.npy', 'wb') as f:
@@ -190,10 +205,11 @@ def benchmark(args):
       f'--batch_size={Hyperparameters.IREE_BENCHMARK_REPS}'
     ]
     if not args.inline:
+        value_shape = get_transposed_shape(args)
         command += [
             f'--input="{args.shape}"',\
             f'--input="{args.shape}"',\
-            f'--input="{args.shape}"'
+            f'--input="{value_shape}"'
         ]
     out, _ = execute_command(command)
     if out is None:
@@ -215,6 +231,7 @@ if __name__ == "__main__":
     parser.add_argument("-chip", type=str, default='gfx90a')
     parser.add_argument("-artifact_dir", type=str, default='/home/harsh/iree/tmp')
     parser.add_argument("-backend", type=str, default='rocm')
+    parser.add_argument("-transpose_v", action=argparse.BooleanOptionalAction)
     args = parser.parse_args()
 
     class State:
