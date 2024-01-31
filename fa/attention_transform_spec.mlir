@@ -30,10 +30,10 @@ module attributes { transform.with_named_sequence } {
     // Tile and decompose attention
     // ==========================================
     %attention4 = transform.structured.match ops{["iree_linalg_ext.attention"]} in %variant_op : (!transform.any_op) -> !transform.any_op
-    %acc_fill, %max_fill, %sum_fill, %inner_loop, %final_scaling, %last_truncate, %blocked_attention = transform.tile_attention %attention4 {tile_size = 32} :
+    %acc_fill, %max_fill, %sum_fill, %inner_loop, %final_scaling, %last_truncate, %blocked_attention = transform.tile_attention %attention4 {tile_size = 64} :
       (!transform.any_op) -> (!transform.any_op, !transform.any_op, !transform.any_op, !transform.any_op, !transform.any_op, !transform.any_op, !transform.any_op)
     %fill_op, %first_matmul, %reduce_max, %partial_softmax, %scale_factor, %update, %reduce_sum, %truncate, %scale_acc, %second_matmul
-        = transform.decompose_tiled_attention %blocked_attention {tile_size = 32} :
+        = transform.decompose_tiled_attention %blocked_attention {tile_size = 64} :
       (!transform.any_op) -> (!transform.any_op, !transform.any_op, !transform.any_op, !transform.any_op, !transform.any_op, !transform.any_op, !transform.any_op, !transform.any_op, !transform.any_op, !transform.any_op)
 
     // Promote key and value operands
@@ -179,12 +179,12 @@ module attributes { transform.with_named_sequence } {
 
     // Swizzle shared memory
     // ==========================================
-    //%func_20 = transform.structured.match ops{["func.func"]} in %variant_op_3 : (!transform.any_op) -> !transform.any_op
-    //transform.apply_patterns to %func_20 {
-    //    transform.apply_patterns.memref.fold_memref_alias_ops
-    //    transform.apply_patterns.canonicalization
-    //  } : !transform.any_op
-    //transform.iree.optimize_shared_memory_reads_and_writes %func_20 : (!transform.any_op) -> ()
+    %func_20 = transform.structured.match ops{["func.func"]} in %variant_op_3 : (!transform.any_op) -> !transform.any_op
+    transform.apply_patterns to %func_20 {
+        transform.apply_patterns.memref.fold_memref_alias_ops
+        transform.apply_patterns.canonicalization
+      } : !transform.any_op
+    transform.iree.optimize_shared_memory_reads_and_writes %func_20 : (!transform.any_op) -> ()
 
     // Do multi-buffering (num_buffers = pipeline_depth + 1 for loadStoreStage0 (strategy = 1))
     // For now, pipeline depth = 1
